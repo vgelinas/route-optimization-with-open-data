@@ -1,11 +1,9 @@
 """
-Scripts to create database schema and populate tables. 
+Scripts to create database schema and populate some initial tables. 
 """
-
 import argparse
 import db_connection
 from db_tables import Base, Agencies
-from pipeline import Pipeline  
 from sqlalchemy import inspect
 from utils.configs import get_transit_config
 
@@ -39,8 +37,6 @@ if __name__ == "__main__":
     Base.metadata.create_all(engine, checkfirst=True)
 
     # The agencies table simply holds the tag for our chosen agency.
-    # We populate it from a flat file in the configs folder. 
-    agency_tag = None 
     config = get_transit_config()
     agency_tag = config["agency_tag"]  
 
@@ -48,8 +44,4 @@ if __name__ == "__main__":
         agency = Agencies(tag=agency_tag)   
         session.add(agency) 
         session.commit()
-
-
-
-
 
