@@ -14,6 +14,6 @@ SELECT routes.tag                   AS route_tag,
   FROM TTC.routes routes
   LEFT JOIN TTC.directions directions ON directions.route_tag = routes.tag
   LEFT JOIN TTC.stops stops ON stops.route_tag = routes.tag AND stops.direction_tag = directions.tag
-WHERE directions.tag = @direction_tag
-ORDER BY stops.stop_along_direction;
+ WHERE directions.tag = @direction_tag
+ ORDER BY stops.stop_along_direction;
        
