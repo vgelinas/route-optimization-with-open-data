@@ -2,7 +2,7 @@
 SET @direction_tag := '329_0_329';
 
 SELECT routes.tag                   AS route_tag,
-	     routes.title                 AS route_title,
+       routes.title                 AS route_title,
        directions.tag               AS direction_tag,
        directions.title             AS direction_title,
        directions.name              AS heading,
