@@ -14,7 +14,7 @@ SET @num_weeks_back = 1;
 
 WITH route_readings AS ( 
 SELECT routes.tag AS route_tag,
-	   dir.tag AS direction_tag,
+	  dir.tag AS direction_tag,
        dir.title AS direction_title,
        dir.name AS heading,
        loc.id AS vehicle_id,
@@ -26,7 +26,7 @@ SELECT routes.tag AS route_tag,
 )
 
 SELECT route_tag, 
-	   direction_tag, 
+	  direction_tag, 
        direction_title,
        heading,
        DATE_FORMAT(DATE(read_time), "%w") AS weekday,
