@@ -3,7 +3,7 @@ SET @vehicle_id := '1096';
 SET @report_date := DATE('2022-02-11');
 
 SELECT loc.id AS vehicle_id,
-	     loc.route_tag,
+       loc.route_tag,
        loc.direction_tag,
        dir.title AS direction_title,
        dir.name AS towards,
