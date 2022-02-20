@@ -1184,7 +1184,7 @@ class ResponseParser:
 
         Args:
             response_dict (dict): json response data from vehicleLocation(s) endpoint.
-            agency_tag (str): shortname of the corresponding agency (e.g. 'ttc') 
+            agency_tag (str): shortname of the corresponding agency (e.g. 'ttc')
 
         Returns: 
             df_dict: A single dataframe wrapped in a dict, with database 
@@ -1306,3 +1306,128 @@ class ResponseParser:
 
         df_dict = {"vehicle_locations": df_vehicle_locations} 
         return df_dict 
+
+    def parse_batch_vehicle_locations_response_into_df(self, response_dict_list, 
+                                                       agency_tag, time_of_extraction):
+        """Parse the json response data coming from the vehicleLocation nextbus API
+        endpoint into a dataframe. This is the batch version of the method with 
+        similar name, meaning that we collect a batch of single vehicle API responses 
+        into a list before parsing for efficiency. 
+
+        Assumes the input format is a list of dicts, each corresponding to a valid
+        'vehicle' key subdict coming from the vehicleLocation response json data. 
+
+        By convention, the return dataframe format matches the 'vehicle_locations' 
+        table for insertion.  
+
+        The columns are:  
+            - route_tag (str),
+            - predictable (bool),
+            - heading (int),
+            - speed_kmhr (int),
+            - lat (float),
+            - lon (float),
+            - id (str),
+            - direction_tag (str),
+            - agency_tag (str),
+            - read_time (datetime64[ns]),
+            - key (str) 
+
+        Args:
+            response_dict_list (list): list of json response data from the 'vehicle' key.
+            agency_tag (str): shortname of the corresponding agency (e.g. 'ttc') 
+            time_of_extraction (datetime): time at which the API was called. 
+
+        Returns: 
+            df_vehicle_locations: Dataframe.
+        """
+        # We construct a null dataframe of the correct format and types.
+        # We'll then extract the values out of the schedule response,
+        # validating and converting types as we go. 
+        df_vehicle_locations = None
+        vehicle_locations_types = {
+            "route_tag": "str",
+            "predictable": "bool",
+            "heading": "int",
+            "speed_kmhr": "int",
+            "lat": "float",
+            "lon": "float",
+            "id": "str",
+            "direction_tag": "str",
+            "agency_tag": "str",  
+            "read_time": "datetime64[ns]",
+            "key": "str"
+        } 
+
+        # We'll use the "secsSinceReport" attribute to pinpoint vehicle log time,
+        # by substracting it from current time.
+        now = time_of_extraction
+
+        # First check if we can extract a dataframe out of the batch data. 
+        # This doubles as a first format validation. 
+        df_response = None
+        try:
+            df_response = pd.DataFrame(response_dict_list) 
+
+        except:
+            pass
+
+        if df_response is not None:
+
+            num_rows = df_response.shape[0]
+            df_vehicle_locations = pd.DataFrame(columns=vehicle_locations_types.keys(), 
+                                                index=range(num_rows))
+
+            for column in vehicle_locations_types.keys():
+                df_vehicle_locations[column] = None
+
+            df_vehicle_locations["agency_tag"] = agency_tag  # passed as arg
+
+            with contextlib.suppress(KeyError):  # route_tag 
+                df_vehicle_locations["route_tag"] = df_response["routeTag"]
+
+            with contextlib.suppress(KeyError):  # predictable
+                df_vehicle_locations["predictable"] = df_response["predictable"]
+            
+            with contextlib.suppress(KeyError):  # heading
+                df_vehicle_locations["heading"] = df_response["heading"]
+
+            with contextlib.suppress(KeyError):  # speed_kmhr 
+                df_vehicle_locations["speed_kmhr"] = df_response["speedKmHr"]
+
+            with contextlib.suppress(KeyError):  # lat
+                df_vehicle_locations["lat"] = df_response["lat"]
+
+            with contextlib.suppress(KeyError):  # lon
+                df_vehicle_locations["lon"] = df_response["lon"] 
+
+            with contextlib.suppress(KeyError):  # id
+                df_vehicle_locations["id"] = df_response["id"] 
+
+            with contextlib.suppress(KeyError):  # direction_tag
+                df_vehicle_locations["direction_tag"] = df_response["dirTag"] 
+
+            # Calculate the time at which vehicle sensor read was taken.
+            with contextlib.suppress(KeyError):  # read_time
+                secs_since_report = pd.to_timedelta(df_response["secsSinceReport"].values.astype("int"),
+                                                    unit="seconds")
+                df_vehicle_locations["read_time"] = now - secs_since_report
+
+            # Primary key is the concatenation of vehicle id and read_time.
+            # To avoid duplicates, we round read_time to the nearest 1/6th min; this is so
+            # vehicles reporting the same data in subsequent queries (i.e. where secsSinceReport
+            # has increased by 5 minutes when queried 5 minutes later) are only given
+            # a single primary key.  
+            if df_vehicle_locations["read_time"] is not None:
+                vehicle_id = df_vehicle_locations["id"] 
+                read_time = df_vehicle_locations["read_time"].apply(str).str.slice(stop=-10)
+                df_vehicle_locations["key"] = vehicle_id + "_" + read_time 
+
+            # Type validation.
+            df_vehicle_locations = df_vehicle_locations.astype(vehicle_locations_types)
+
+            # We order columns as in the database.
+            col_order = list(vehicle_locations_types.keys())
+            df_vehicle_locations = df_vehicle_locations[col_order] 
+
+        return df_vehicle_locations
