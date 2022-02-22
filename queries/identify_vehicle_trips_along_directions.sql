@@ -16,18 +16,20 @@ SET @from_num_days_ago = 1;  -- pull all samples from yesterday on
 WITH base AS (
 	SELECT id AS vehicle_id,
 		   direction_tag,
-		   read_time, 
-		   TIMESTAMPDIFF(SECOND, LAG(read_time) OVER (PARTITION BY id, direction_tag ORDER BY read_time), read_time) AS sec_to_prev
+           read_time, 
+           TIMESTAMPDIFF(SECOND, LAG(read_time) OVER (PARTITION BY id, direction_tag ORDER BY read_time), read_time) AS sec_to_prev
            
 	  FROM TTC.vehicle_locations 
 	 WHERE direction_tag <> 'None' -- TODO: Fix null insertion issue in sqlalchemy ORM, then change this part of the query. 
-       AND DATE(read_time) >= SUBDATE(CURRENT_DATE(), INTERVAL @from_num_days_ago DAY)
+	   AND DATE(read_time) >= SUBDATE(CURRENT_DATE(), INTERVAL @from_num_days_ago DAY)
 	 ORDER BY id, direction_tag, read_time
 ),
 	 thresholds AS (
 	SELECT vehicle_id,
 		   direction_tag,
-		   ( AVG(sec_to_prev) + (1/2)*STD(sec_to_prev) ) AS half_sigma  -- Settled upon after some experimentation. Larger is not better, and can lead to "false starts" due to skew. Using a percentile rank would be better here.
+           ( AVG(sec_to_prev) + (1/2)*STD(sec_to_prev) ) AS half_sigma  /*Settled upon after some experimentation. Larger is not better, 
+																		and can lead to "false starts" due to skew. Using a percentile rank 
+                                                                        could be better here.*/
 	  FROM base
 	 WHERE sec_to_prev IS NOT NULL
 	 GROUP BY 1,2
@@ -39,13 +41,16 @@ WITH base AS (
            ROW_NUMBER() OVER (PARTITION BY b.vehicle_id ORDER BY b.read_time) AS trip_number
 	  FROM base b
       INNER JOIN thresholds th ON b.vehicle_id=th.vehicle_id AND b.direction_tag=th.direction_tag
-	 WHERE b.sec_to_prev IS NULL OR (b.sec_to_prev >= th.half_sigma AND b.sec_to_prev >= 300)  -- detect start times when sec_to_prev is a half-sigma away from the mean, and we enforce a min of 300sec=5min for edge cases for when stdev is nearly 0. 
+	 WHERE b.sec_to_prev IS NULL OR (b.sec_to_prev >= th.half_sigma AND b.sec_to_prev >= 300)  /*Detect start times when sec_to_prev 
+																								is a half-sigma away from the mean, and 
+																								we enforce a min of 300sec=5min for edge 
+                                                                                                cases for when stdev is nearly 0.*/
 ),
 	 base_with_starts AS (
 	SELECT loc.vehicle_id, loc.direction_tag, loc.read_time, loc.sec_to_prev, 
 		   starts.trip_number
 	 FROM base loc
-	 LEFT JOIN start_times starts ON loc.vehicle_id=starts.vehicle_id AND loc.direction_tag=starts.direction_tag AND loc.read_time=starts.read_time
+     LEFT JOIN start_times starts ON loc.vehicle_id=starts.vehicle_id AND loc.direction_tag=starts.direction_tag AND loc.read_time=starts.read_time
 	ORDER BY loc.vehicle_id, loc.read_time
 ),
 	 base_fill_helper AS (
