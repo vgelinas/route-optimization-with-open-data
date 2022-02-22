@@ -41,10 +41,7 @@ WITH base AS (
            ROW_NUMBER() OVER (PARTITION BY b.vehicle_id ORDER BY b.read_time) AS trip_number
       FROM base b
       INNER JOIN thresholds th ON b.vehicle_id=th.vehicle_id AND b.direction_tag=th.direction_tag
-     WHERE b.sec_to_prev IS NULL OR (b.sec_to_prev >= th.half_sigma AND b.sec_to_prev >= 300)  /*Detect start times when sec_to_prev 
-                                                                                                is a half-sigma away from the mean, and 
-                                                                                                we enforce a min of 300sec=5min for edge 
-                                                                                                cases for when stdev is nearly 0.*/
+     WHERE b.sec_to_prev IS NULL OR (b.sec_to_prev >= th.half_sigma AND b.sec_to_prev >= 300)  -- use 5min threshold when sigma too small
 ),
      base_with_starts AS (
     SELECT loc.vehicle_id, loc.direction_tag, loc.read_time, loc.sec_to_prev, 
