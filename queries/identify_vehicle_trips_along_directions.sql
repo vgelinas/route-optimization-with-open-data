@@ -15,7 +15,7 @@ SET @from_num_days_ago = 1;  -- pull all samples from yesterday on
 
 WITH base AS (
 	SELECT id AS vehicle_id,
-           direction_tag,
+		   direction_tag,
            read_time, 
            TIMESTAMPDIFF(SECOND, LAG(read_time) OVER (PARTITION BY id, direction_tag ORDER BY read_time), read_time) AS sec_to_prev
            
