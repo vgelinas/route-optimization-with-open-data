@@ -2,8 +2,8 @@
 
 Approach: TTC.vehicle_locations contains minute-by-minute location samples for each vehicle.
 Calculating times to previous/next samples seen on the same direction, the trip boundaries 
-correspond to large jumps in these time values. To pick these out, we create a table of thresholds 
-for each vehicle and direction_tag (basically looking for statistical extreme values).
+correspond to large jumps in these time values. We use a specified threshold to pick out
+these jumps, currently at 15min. 
 
 Once the boundaries of trips are identified, we join a trip number to the sample table at their 
 read_time value, and then backfill the intermediate samples's null values to that same trip number.
@@ -11,7 +11,8 @@ read_time value, and then backfill the intermediate samples's null values to tha
 only because a trip's end is right before another trip's start. This is what we do below.)
 */
 
-SET @from_num_days_ago = 1;  -- pull all samples from yesterday on
+SET @num_days = 2;  -- consider num_days's worth of data including today
+SET @threshold = 900;  -- 15min in seconds
 
 WITH base AS (
     SELECT id AS vehicle_id,
@@ -21,27 +22,16 @@ WITH base AS (
            
       FROM TTC.vehicle_locations 
      WHERE direction_tag <> 'None' -- TODO: Fix null insertion issue in sqlalchemy ORM, then change this part of the query. 
-       AND DATE(read_time) >= SUBDATE(CURRENT_DATE(), INTERVAL @from_num_days_ago DAY)
+       AND DATE(read_time) >= SUBDATE(CURRENT_DATE(), INTERVAL (@num_days - 1) DAY)
      ORDER BY id, direction_tag, read_time
 ),
-     thresholds AS (
-    SELECT vehicle_id,
-           direction_tag,
-           ( AVG(sec_to_prev) + (1/2)*STD(sec_to_prev) ) AS half_sigma  /*Settled upon after some experimentation. Larger is not better, 
-                                                                        and can lead to "false starts" due to skew. Using a percentile rank 
-                                                                        could be better here.*/
-      FROM base
-     WHERE sec_to_prev IS NOT NULL
-     GROUP BY 1,2
-),
      start_times AS (
-    SELECT b.vehicle_id, 
-           b.direction_tag,
-           b.read_time,
-           ROW_NUMBER() OVER (PARTITION BY b.vehicle_id ORDER BY b.read_time) AS trip_number
-      FROM base b
-      INNER JOIN thresholds th ON b.vehicle_id=th.vehicle_id AND b.direction_tag=th.direction_tag
-     WHERE b.sec_to_prev IS NULL OR (b.sec_to_prev >= th.half_sigma AND b.sec_to_prev >= 300)  -- use 5min threshold when sigma too small
+    SELECT vehicle_id, 
+           direction_tag,
+           read_time,
+           ROW_NUMBER() OVER (PARTITION BY vehicle_id ORDER BY read_time) AS trip_number
+      FROM base 
+     WHERE sec_to_prev IS NULL OR sec_to_prev >= @threshold
 ),
      base_with_starts AS (
     SELECT loc.vehicle_id, loc.direction_tag, loc.read_time, loc.sec_to_prev, 
@@ -64,5 +54,5 @@ WITH base AS (
 SELECT loc.id as vehicle_id, loc.direction_tag, loc.lat, loc.lon, loc.read_time, trips.trip_number
   FROM TTC.vehicle_locations loc
   LEFT JOIN trips ON loc.id=trips.vehicle_id AND loc.direction_tag=trips.direction_tag AND loc.read_time=trips.read_time
- WHERE DATE(loc.read_time) >= SUBDATE(CURRENT_DATE(), INTERVAL @from_num_days_ago DAY)
+ WHERE DATE(loc.read_time) >= SUBDATE(CURRENT_DATE(), INTERVAL (@num_days - 1) DAY)
  ORDER BY loc.id, loc.read_time;
