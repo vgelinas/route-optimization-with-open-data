@@ -10,14 +10,25 @@ which is more accurate with such frequent samples.
 
 SET @threshold = 300;  -- 5min in seconds
 
-WITH base AS (
+WITH dir_tag_filter AS (  /*First filter the direction_tag column, correcting isolated errors or omissions in tags.*/
     SELECT id AS vehicle_id,
+           read_time,
+           CASE 
+               WHEN LAG(direction_tag) OVER (PARTITION BY id ORDER BY read_time) = LEAD(direction_tag) OVER (PARTITION BY id ORDER BY read_time) 
+               THEN LAG(direction_tag) OVER (PARTITION BY id ORDER BY read_time)  
+               ELSE direction_tag 
+            END AS direction_tag
+      FROM TTC.vehicle_locations_validation
+     ORDER BY vehicle_id, read_time
+),
+     base AS (
+    SELECT vehicle_id,
            direction_tag,
            read_time, 
-           TIMESTAMPDIFF(SECOND, LAG(read_time) OVER (PARTITION BY id, direction_tag ORDER BY read_time), read_time) AS sec_to_prev
-      FROM TTC.vehicle_locations_validation 
+           TIMESTAMPDIFF(SECOND, LAG(read_time) OVER (PARTITION BY vehicle_id, direction_tag ORDER BY read_time), read_time) AS sec_to_prev
+      FROM dir_tag_filter
      WHERE direction_tag <> 'None' -- TODO: Fix null insertion issue in sqlalchemy ORM, then change this part of the query. 
-     ORDER BY id, direction_tag, read_time
+     ORDER BY vehicle_id, read_time
 ),
      start_times AS (
     SELECT vehicle_id, 
@@ -28,15 +39,16 @@ WITH base AS (
      WHERE sec_to_prev IS NULL OR sec_to_prev >= @threshold
 ),
      base_with_starts AS (
-    SELECT loc.vehicle_id, loc.direction_tag, loc.read_time, loc.sec_to_prev, 
-           starts.trip_number
-      FROM base loc
-      LEFT JOIN start_times starts ON loc.vehicle_id=starts.vehicle_id AND loc.direction_tag=starts.direction_tag AND loc.read_time=starts.read_time
-     ORDER BY loc.vehicle_id, loc.read_time
+    SELECT b.vehicle_id, b.direction_tag, b.read_time, b.sec_to_prev, 
+           s.trip_number
+      FROM base b
+      LEFT JOIN start_times s ON b.vehicle_id=s.vehicle_id AND b.direction_tag=s.direction_tag AND b.read_time=s.read_time
+     ORDER BY b.vehicle_id, b.read_time
 ),
      base_fill_helper AS (
     SELECT *, SUM(CASE WHEN trip_number IS NOT NULL THEN 1 ELSE 0 END) OVER (PARTITION BY vehicle_id ORDER BY read_time) AS row_group
       FROM base_with_starts
+     ORDER BY vehicle_id, read_time
 ),
      trips AS (
     SELECT vehicle_id, direction_tag, read_time, 
@@ -45,7 +57,7 @@ WITH base AS (
      ORDER BY vehicle_id, read_time
 )
 
-SELECT loc.id as vehicle_id, loc.direction_tag, loc.lat, loc.lon, loc.read_time, trips.trip_number
+SELECT loc.id as vehicle_id, trips.direction_tag, loc.lat, loc.lon, loc.read_time, trips.trip_number
   FROM TTC.vehicle_locations_validation loc
-  LEFT JOIN trips ON loc.id=trips.vehicle_id AND loc.direction_tag=trips.direction_tag AND loc.read_time=trips.read_time
+  LEFT JOIN trips ON loc.id=trips.vehicle_id AND loc.read_time=trips.read_time
  ORDER BY loc.id, loc.read_time;
