@@ -14,10 +14,10 @@ only because a trip's end is right before another trip's start. This is what we 
 SET @num_days = 7;     -- days' worth of data including today
 SET @threshold = 900;  -- 15min in seconds
 
-WITH dir_tag_filter AS (  
+WITH dir_tag_filter AS (  /*First filter the direction_tag column, correcting isolated errors or omissions in tags.*/
     SELECT id AS vehicle_id,
            read_time,
-           CASE /*Correct isolated errors in direction_tag column, when tag flips randomly in the middle of a steady group.*/
+           CASE 
                WHEN LAG(direction_tag) OVER (PARTITION BY id ORDER BY read_time) = LEAD(direction_tag) OVER (PARTITION BY id ORDER BY read_time) 
                THEN LAG(direction_tag) OVER (PARTITION BY id ORDER BY read_time)  
                ELSE direction_tag 
