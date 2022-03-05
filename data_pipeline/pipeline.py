@@ -4,7 +4,6 @@ Data Pipeline classes.
 import contextlib
 import datetime
 import db_connection 
-import math 
 import pandas as pd
 import threading
 from database import DatabaseWrapper
@@ -119,31 +118,26 @@ class DataLoader:
     def fetch_active_vehicles_snapshop_from_API(self):
         """Fetch the id of all currently active vehicles and insert in db."""
 
-        #return_dict = ThreadSafeDict() 
-        #threads = [] 
+        return_dict = ThreadSafeDict() 
+        threads = [] 
 
         agency_tag = self.db.get_agency_tag() 
         route_list = self.db.get_route_list(agency_tag)   
 
-        #for batch in batches(route_list, size=50): 
-        #    for route_tag in batch:
-        #
-        #        t = threading.Thread(
-        #                target=self._fetch_vehicle_location_on_route_df,
-        #                args=(route_tag, agency_tag, return_dict)
-        #                )
-        #        t.start()
-        #        threads.append(t)
-        #
-        #    for t in threads:
-        #        t.join() 
-        #
-        #df_list = return_dict.values()
-        df_list = []
-        for route_tag in route_list:
-            df_vehicles_on_route = self._fetch_vehicle_location_on_route_df(
-                                            route_tag, agency_tag, return_dict=None)
-            df_list.append(df_vehicles_on_route)
+        for batch in batches(route_list, size=50): 
+            for route_tag in batch:
+        
+                t = threading.Thread(
+                        target=self._fetch_vehicle_location_on_route_df,
+                        args=(route_tag, agency_tag, return_dict)
+                        )
+                t.start()
+                threads.append(t)
+        
+            for t in threads:
+                t.join() 
+        
+        df_list = return_dict.values()
         df_active_vehicles = pd.concat(df_list)  
 
         df_active_vehicles["agency_tag"] = agency_tag
@@ -171,37 +165,31 @@ class DataLoader:
                                 time_of_extraction=time_of_extraction
                                 )
 
-        #with return_dict as locked_dict:  # initialise thread lock
-        #    locked_dict[route_tag] = df_dict["vehicle_locations"]
-        return df_dict["vehicle_locations"]
+        with return_dict as locked_dict:  # context manager inits thread lock
+            locked_dict[route_tag] = df_dict["vehicle_locations"]
 
     def fetch_vehicle_locations_from_API(self, active_over_num_days=7):
         """Fetch current vehicle location for all recently active vehicle ids."""  
 
-        #return_dict = ThreadSafeDict() 
-        #threads = [] 
+        return_dict = ThreadSafeDict() 
+        threads = [] 
 
         agency_tag = self.db.get_agency_tag() 
         vehicle_ids = self.db.get_active_vehicle_ids(agency_tag, active_over_num_days)
 
-        #for batch in batches(vehicle_ids, size=1000):   
-        #    for vehicle_id in batch:
-        #        t = threading.Thread(
-        #                target=self._fetch_vehicle_location_df,
-        #                args=(agency_tag, vehicle_id, return_dict)
-        #                )
-        #        t.start()
-        #        threads.append(t)
-        #
-        #    for t in threads:
-        #        t.join()
+        for batch in batches(vehicle_ids, size=500):   
+            for vehicle_id in batch:
+                t = threading.Thread(
+                        target=self._fetch_vehicle_location_df,
+                        args=(agency_tag, vehicle_id, return_dict)
+                        )
+                t.start()
+                threads.append(t)
+        
+            for t in threads:
+                t.join()
 
-        #df_list = return_dict.values()
-
-        df_list = [] 
-        for vehicle_id in vehicle_ids:
-            df_vehicle = self._fetch_vehicle_location_df(agency_tag, vehicle_id, return_dict=None) 
-            df_list.append(df_vehicle)
+        df_list = return_dict.values()
         df_vehicle_locations = pd.concat(df_list) 
 
         self.db.insert_dataframe_in_table("vehicle_locations", df_vehicle_locations)
@@ -223,9 +211,8 @@ class DataLoader:
                                 time_of_extraction=time_of_extraction
                                 )
 
-        #with return_dict as locked_dict:  # with statement initialises thread lock
-        #    locked_dict[vehicle_id] = df_dict["vehicle_locations"]
-        return df_dict["vehicle_locations"]
+        with return_dict as locked_dict:   # context manager inits thread lock
+            locked_dict[vehicle_id] = df_dict["vehicle_locations"]
 
     def fetch_validation_vehicle_locations_from_API(self):
         """Fetch location data for vehicles from the vehicles_validation table,
