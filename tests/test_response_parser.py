@@ -14012,3 +14012,6 @@ def test_parse_vehicle_locations_response_into_df_dict():
     df_vehicle_locations_answer = df_vehicle_locations_answer.astype(vehicle_locations_types)  
 
     pd.testing.assert_frame_equal(df_vehicle_locations, df_vehicle_locations_answer)
+
+def test_parse_batch_vehicle_locations_response_into_df():
+    pass
