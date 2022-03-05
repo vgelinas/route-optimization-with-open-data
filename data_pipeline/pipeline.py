@@ -177,21 +177,29 @@ class DataLoader:
         agency_tag = self.db.get_agency_tag() 
         vehicle_ids = self.db.get_active_vehicle_ids(agency_tag, active_over_num_days)
 
+        df_list = [] 
         for batch in batches(vehicle_ids, size=500):   
+            time_of_extraction = datetime.datetime.now() 
+
             for vehicle_id in batch:
                 t = threading.Thread(
-                        target=self._fetch_vehicle_location_df,
-                        args=(agency_tag, vehicle_id, return_dict)
-                        )
+                       target=self._fetch_vehicle_location_response,
+                       args=(agency_tag, vehicle_id, return_dict)
+                       )
                 t.start()
                 threads.append(t)
         
             for t in threads:
                 t.join()
 
-        df_list = return_dict.values()
-        df_vehicle_locations = pd.concat(df_list) 
+            batch_df = self.parser.parse_batch_vehicle_locations_response_into_df(
+                        response_dict_list = return_dict.values(),
+                        agency_tag=agency_tag,
+                        time_of_extraction=time_of_extraction
+                        )
+            df_list.append(batch_df)
 
+        df_vehicle_locations = pd.concat(df_list) 
         self.db.insert_dataframe_in_table("vehicle_locations", df_vehicle_locations)
 
     def _fetch_vehicle_location_df(self, agency_tag, vehicle_id,
@@ -213,6 +221,19 @@ class DataLoader:
 
         with return_dict as locked_dict:   # context manager inits thread lock
             locked_dict[vehicle_id] = df_dict["vehicle_locations"]
+
+    def _fetch_vehicle_location_response(self, agency_tag, vehicle_id, 
+                                        return_dict):
+        """Fetch current location response data for a specific vehicle.""" 
+
+        response_dict = self.nextbus.get_response_dict_from_web(
+                                endpoint_name="vehicleLocation",
+                                agency_tag=agency_tag,
+                                vehicle_id=vehicle_id 
+                                )
+
+        with return_dict as locked_dict:   # context manager inits thread lock
+            locked_dict[vehicle_id] = response_dict 
 
     def fetch_validation_vehicle_locations_from_API(self):
         """Fetch location data for vehicles from the vehicles_validation table,
@@ -1301,8 +1322,9 @@ class ResponseParser:
         similar name, meaning that we collect a batch of single vehicle API responses 
         into a list before parsing for efficiency. 
 
-        Assumes the input format is a list of dicts, each corresponding to a valid
-        'vehicle' key subdict coming from the vehicleLocation response json data. 
+        Assumes the input format is a list of dicts, each corresponding to an API 
+        response's json from the vehicleLocation endpoint. We add a layer of 
+        validation before processing the batch.
 
         By convention, the return dataframe format matches the 'vehicle_locations' 
         table for insertion.  
@@ -1323,11 +1345,20 @@ class ResponseParser:
         Args:
             response_dict_list (list): list of json response data from the 'vehicle' key.
             agency_tag (str): shortname of the corresponding agency (e.g. 'ttc') 
-            time_of_extraction (datetime): time at which the API was called. 
+            time_of_extraction (datetime): time of batch API calls. 
 
         Returns: 
             df_vehicle_locations: Dataframe.
         """
+        # We first preprocess the list of response dicts, filtering out error
+        # responses and extracting the 'vehicle' subdicts for each. We also
+        # throw out old responses (>= 30 min old). 
+        response_dict_list = list(filter(
+            lambda dct: "vehicle" in dct and 
+                        dct["vehicle"]["secsSinceReport"] < 1800,  
+            response_dict_list
+            )) 
+
         # We construct a null dataframe of the correct format and types.
         # We'll then extract the values out of the schedule response,
         # validating and converting types as we go. 
