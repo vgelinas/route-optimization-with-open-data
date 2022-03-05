@@ -4,6 +4,7 @@ Data Pipeline classes.
 import contextlib
 import datetime
 import db_connection 
+import math 
 import pandas as pd
 import threading
 from database import DatabaseWrapper
@@ -118,26 +119,31 @@ class DataLoader:
     def fetch_active_vehicles_snapshop_from_API(self):
         """Fetch the id of all currently active vehicles and insert in db."""
 
-        return_dict = ThreadSafeDict() 
-        threads = [] 
+        #return_dict = ThreadSafeDict() 
+        #threads = [] 
 
         agency_tag = self.db.get_agency_tag() 
         route_list = self.db.get_route_list(agency_tag)   
 
-        for batch in batches(route_list, size=50): 
-            for route_tag in batch:
-        
-                t = threading.Thread(
-                        target=self._fetch_vehicle_location_on_route_df,
-                        args=(route_tag, agency_tag, return_dict)
-                        )
-                t.start()
-                threads.append(t)
-        
-            for t in threads:
-                t.join() 
-        
-        df_list = return_dict.values()
+        #for batch in batches(route_list, size=50): 
+        #    for route_tag in batch:
+        #
+        #        t = threading.Thread(
+        #                target=self._fetch_vehicle_location_on_route_df,
+        #                args=(route_tag, agency_tag, return_dict)
+        #                )
+        #        t.start()
+        #        threads.append(t)
+        #
+        #    for t in threads:
+        #        t.join() 
+        #
+        #df_list = return_dict.values()
+        df_list = []
+        for route_tag in route_list:
+            df_vehicles_on_route = self._fetch_vehicle_location_on_route_df(
+                                            route_tag, agency_tag, return_dict=None)
+            df_list.append(df_vehicles_on_route)
         df_active_vehicles = pd.concat(df_list)  
 
         df_active_vehicles["agency_tag"] = agency_tag
@@ -165,41 +171,39 @@ class DataLoader:
                                 time_of_extraction=time_of_extraction
                                 )
 
-        with return_dict as locked_dict:  # context manager inits thread lock
-            locked_dict[route_tag] = df_dict["vehicle_locations"]
+        #with return_dict as locked_dict:  # initialise thread lock
+        #    locked_dict[route_tag] = df_dict["vehicle_locations"]
+        return df_dict["vehicle_locations"]
 
     def fetch_vehicle_locations_from_API(self, active_over_num_days=7):
         """Fetch current vehicle location for all recently active vehicle ids."""  
 
-        return_dict = ThreadSafeDict() 
-        threads = [] 
+        #return_dict = ThreadSafeDict() 
+        #threads = [] 
 
         agency_tag = self.db.get_agency_tag() 
         vehicle_ids = self.db.get_active_vehicle_ids(agency_tag, active_over_num_days)
 
+        #for batch in batches(vehicle_ids, size=1000):   
+        #    for vehicle_id in batch:
+        #        t = threading.Thread(
+        #                target=self._fetch_vehicle_location_df,
+        #                args=(agency_tag, vehicle_id, return_dict)
+        #                )
+        #        t.start()
+        #        threads.append(t)
+        #
+        #    for t in threads:
+        #        t.join()
+
+        #df_list = return_dict.values()
+
         df_list = [] 
-        for batch in batches(vehicle_ids, size=500):   
-            time_of_extraction = datetime.datetime.now() 
-
-            for vehicle_id in batch:
-                t = threading.Thread(
-                       target=self._fetch_vehicle_location_response,
-                       args=(agency_tag, vehicle_id, return_dict)
-                       )
-                t.start()
-                threads.append(t)
-        
-            for t in threads:
-                t.join()
-
-            batch_df = self.parser.parse_batch_vehicle_locations_response_into_df(
-                        response_dict_list = return_dict.values(),
-                        agency_tag=agency_tag,
-                        time_of_extraction=time_of_extraction
-                        )
-            df_list.append(batch_df)
-
+        for vehicle_id in vehicle_ids:
+            df_vehicle = self._fetch_vehicle_location_df(agency_tag, vehicle_id, return_dict=None) 
+            df_list.append(df_vehicle)
         df_vehicle_locations = pd.concat(df_list) 
+
         self.db.insert_dataframe_in_table("vehicle_locations", df_vehicle_locations)
 
     def _fetch_vehicle_location_df(self, agency_tag, vehicle_id,
@@ -219,21 +223,9 @@ class DataLoader:
                                 time_of_extraction=time_of_extraction
                                 )
 
-        with return_dict as locked_dict:   # context manager inits thread lock
-            locked_dict[vehicle_id] = df_dict["vehicle_locations"]
-
-    def _fetch_vehicle_location_response(self, agency_tag, vehicle_id, 
-                                        return_dict):
-        """Fetch current location response data for a specific vehicle.""" 
-
-        response_dict = self.nextbus.get_response_dict_from_web(
-                                endpoint_name="vehicleLocation",
-                                agency_tag=agency_tag,
-                                vehicle_id=vehicle_id 
-                                )
-
-        with return_dict as locked_dict:   # context manager inits thread lock
-            locked_dict[vehicle_id] = response_dict 
+        #with return_dict as locked_dict:  # with statement initialises thread lock
+        #    locked_dict[vehicle_id] = df_dict["vehicle_locations"]
+        return df_dict["vehicle_locations"]
 
     def fetch_validation_vehicle_locations_from_API(self):
         """Fetch location data for vehicles from the vehicles_validation table,
@@ -1192,7 +1184,7 @@ class ResponseParser:
 
         Args:
             response_dict (dict): json response data from vehicleLocation(s) endpoint.
-            agency_tag (str): shortname of the corresponding agency (e.g. 'ttc')
+            agency_tag (str): shortname of the corresponding agency (e.g. 'ttc') 
 
         Returns: 
             df_dict: A single dataframe wrapped in a dict, with database 
@@ -1314,138 +1306,3 @@ class ResponseParser:
 
         df_dict = {"vehicle_locations": df_vehicle_locations} 
         return df_dict 
-
-    def parse_batch_vehicle_locations_response_into_df(self, response_dict_list, 
-                                                       agency_tag, time_of_extraction):
-        """Parse the json response data coming from the vehicleLocation nextbus API
-        endpoint into a dataframe. This is the batch version of the method with 
-        similar name, meaning that we collect a batch of single vehicle API responses 
-        into a list before parsing for efficiency. 
-
-        Assumes the input format is a list of dicts, each corresponding to an API 
-        response's json from the vehicleLocation endpoint. We add a layer of 
-        validation before processing the batch.
-
-        By convention, the return dataframe format matches the 'vehicle_locations' 
-        table for insertion.  
-
-        The columns are:  
-            - route_tag (str),
-            - predictable (bool),
-            - heading (int),
-            - speed_kmhr (int),
-            - lat (float),
-            - lon (float),
-            - id (str),
-            - direction_tag (str),
-            - agency_tag (str),
-            - read_time (datetime64[ns]),
-            - key (str) 
-
-        Args:
-            response_dict_list (list): list of json response data from the 'vehicle' key.
-            agency_tag (str): shortname of the corresponding agency (e.g. 'ttc') 
-            time_of_extraction (datetime): time of batch API calls. 
-
-        Returns: 
-            df_vehicle_locations: Dataframe.
-        """
-        # We first preprocess the list of response dicts, filtering out error
-        # responses and extracting the 'vehicle' subdicts for each. We also
-        # throw out old responses (>= 30 min old). 
-        response_dict_list = list(filter(
-            lambda dct: "vehicle" in dct and 
-                        dct["vehicle"]["secsSinceReport"] < 1800,  
-            response_dict_list
-            )) 
-
-        # We construct a null dataframe of the correct format and types.
-        # We'll then extract the values out of the schedule response,
-        # validating and converting types as we go. 
-        df_vehicle_locations = None
-        vehicle_locations_types = {
-            "route_tag": "str",
-            "predictable": "bool",
-            "heading": "int",
-            "speed_kmhr": "int",
-            "lat": "float",
-            "lon": "float",
-            "id": "str",
-            "direction_tag": "str",
-            "agency_tag": "str",  
-            "read_time": "datetime64[ns]",
-            "key": "str"
-        } 
-
-        # We'll use the "secsSinceReport" attribute to pinpoint vehicle log time,
-        # by substracting it from current time.
-        now = time_of_extraction
-
-        # First check if we can extract a dataframe out of the batch data. 
-        # This doubles as a first format validation. 
-        df_response = None
-        try:
-            df_response = pd.DataFrame(response_dict_list) 
-
-        except:
-            pass
-
-        if df_response is not None:
-
-            num_rows = df_response.shape[0]
-            df_vehicle_locations = pd.DataFrame(columns=vehicle_locations_types.keys(), 
-                                                index=range(num_rows))
-
-            for column in vehicle_locations_types.keys():
-                df_vehicle_locations[column] = None
-
-            df_vehicle_locations["agency_tag"] = agency_tag  # passed as arg
-
-            with contextlib.suppress(KeyError):  # route_tag 
-                df_vehicle_locations["route_tag"] = df_response["routeTag"]
-
-            with contextlib.suppress(KeyError):  # predictable
-                df_vehicle_locations["predictable"] = df_response["predictable"]
-            
-            with contextlib.suppress(KeyError):  # heading
-                df_vehicle_locations["heading"] = df_response["heading"]
-
-            with contextlib.suppress(KeyError):  # speed_kmhr 
-                df_vehicle_locations["speed_kmhr"] = df_response["speedKmHr"]
-
-            with contextlib.suppress(KeyError):  # lat
-                df_vehicle_locations["lat"] = df_response["lat"]
-
-            with contextlib.suppress(KeyError):  # lon
-                df_vehicle_locations["lon"] = df_response["lon"] 
-
-            with contextlib.suppress(KeyError):  # id
-                df_vehicle_locations["id"] = df_response["id"] 
-
-            with contextlib.suppress(KeyError):  # direction_tag
-                df_vehicle_locations["direction_tag"] = df_response["dirTag"] 
-
-            # Calculate the time at which vehicle sensor read was taken.
-            with contextlib.suppress(KeyError):  # read_time
-                secs_since_report = pd.to_timedelta(df_response["secsSinceReport"].values.astype("int"),
-                                                    unit="seconds")
-                df_vehicle_locations["read_time"] = now - secs_since_report
-
-            # Primary key is the concatenation of vehicle id and read_time.
-            # To avoid duplicates, we round read_time to the nearest 1/6th min; this is so
-            # vehicles reporting the same data in subsequent queries (i.e. where secsSinceReport
-            # has increased by 5 minutes when queried 5 minutes later) are only given
-            # a single primary key.  
-            if df_vehicle_locations["read_time"] is not None:
-                vehicle_id = df_vehicle_locations["id"] 
-                read_time = df_vehicle_locations["read_time"].apply(str).str.slice(stop=-10)
-                df_vehicle_locations["key"] = vehicle_id + "_" + read_time 
-
-            # Type validation.
-            df_vehicle_locations = df_vehicle_locations.astype(vehicle_locations_types)
-
-            # We order columns as in the database.
-            col_order = list(vehicle_locations_types.keys())
-            df_vehicle_locations = df_vehicle_locations[col_order] 
-
-        return df_vehicle_locations
