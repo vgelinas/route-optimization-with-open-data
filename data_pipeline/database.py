@@ -27,18 +27,13 @@ class DatabaseWrapper:
             "transit_graph": db_tables.TransitGraph 
         }
 
-    def _get_connection(self):
-        """Get a database connection with batching enabled. 
+    def connect(self):
+        """Get a database connection.
 
         Returns:
             conn: SQLAlchemy connection. 
         """
-
-        engine = db_connection.create_engine()
-        conn = engine.connect().execution_options( 
-            stream_results=True)
-
-        return conn 
+        return db_connection.create_engine().connect() 
 
     def _check_if_primary_key_in_table(self, tablename, key):
         """Helper function for insert_dataframe_in_table method.
@@ -135,16 +130,12 @@ class DatabaseWrapper:
             dataframe: Result of the SELECT query. 
         """
 
-        conn = self._get_connection() 
+        with self.connect().execution_options(stream_results=True) as conn:
+            df_list = [] 
+            for chunk_dataframe in pd.read_sql(query, conn, chunksize=chunksize): 
+                df_list.append(chunk_dataframe) 
 
-        df_list = [] 
-        for chunk_dataframe in pd.read_sql(query, conn, chunksize=chunksize): 
-            df_list.append(chunk_dataframe) 
-
-        conn.close()
-
-        df = pd.concat(df_list) 
-        return df 
+        return pd.concat(df_list)
 
     def get_agency_tag(self):
         """Get the agency tag from database (e.g. 'ttc'). This is mainly used
