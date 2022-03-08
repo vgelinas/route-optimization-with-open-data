@@ -5,11 +5,17 @@ import contextlib
 import datetime
 import db_connection 
 import pandas as pd
+import numpy as np
 from database import DatabaseWrapper
+from db_connection_aws import Connection
 from nextbus_api import NextBusAPI 
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.preprocessing import MinMaxScaler 
 from utils.configs import get_transit_config
 from utils.distances import calculate_distance_from_lat_lon_coords
-
+from utils.queries import get_queries_path
 
 class Pipeline:
 
@@ -500,7 +506,7 @@ class DataPreparation:
                              "node1", "node2", "is_connection"]]  
         self.db.insert_dataframe_in_table("transit_graph", df) 
 
-    def _trim_stop_tags(self, df):  
+    def _trim_stop_tags(self, df):
         """Helper function. Used when assembling the transit graph from stops data.
         
         Stop tags sometimes have additional endings such as _IB, _OB, _ar, indicating
@@ -514,6 +520,103 @@ class DataPreparation:
         df["node2"] = df["stop_tag2"].str.replace("_IB","").str.replace("_OB","").str.replace("_ar","")
 
         return df 
+
+    def get_predicted_times_at_stops_df(self):
+
+        trips_df = self._load_daily_trips_data()
+        stops_df = self._load_stops_data()
+
+        # We'll perform knn imputation on missing times data. Note that when 
+        # converted to numeric values, NaT becomes -9223372036854775808.
+        knn_regressor=KNeighborsRegressor(n_neighbors=3, p=1, weights="distance")
+        knn_imputer = IterativeImputer(random_state=0, estimator=knn_regressor,
+                                       missing_values=-9223372036854775808)
+
+        df_list = []  
+        group_columns = ["vehicle_id", "direction_tag", "trip_number"] 
+        for group in trips_df.groupby(group_columns):  
+
+            try:  
+                vehicle_id, direction_tag, trip_number = group[0]
+                group_df = group[1] 
+                group_stops_df = stops_df[stops_df.direction_tag==direction_tag]
+
+                # By merging the vehicle and stops locations data, we can treat
+                # the vehicle time at stop as a missing value problem. We then
+                # solve this via knn imputation. 
+                loc_samples_df = pd.merge(
+                    group_stops_df[["lat", "lon"]],
+                    group_df[["lat", "lon", "read_time"]],
+                    how="outer",
+                    left_on=["lat", "lon"],
+                    right_on=["lat", "lon"]
+                )
+                imputed_df = self._impute_read_time(loc_samples_df, knn_imputer)
+
+                # Keep only the infered times at stops, which is the relevant info.
+                imputed_df = pd.merge(
+                    imputed_df,
+                    group_stops_df[["lat", "lon", "stop_order"]],
+                    how="inner",
+                    left_on=["lat", "lon"],
+                    right_on=["lat", "lon"]
+                )
+
+                # Tag the result.
+                imputed_df["vehicle_id"] = vehicle_id
+                imputed_df["direction_tag"] = direction_tag
+                imputed_df["trip_number"] = trip_number
+
+                df_list.append(imputed_df) 
+
+            except:
+                pass
+
+        return pd.concat(df_list) 
+
+    def _load_daily_trips_data(self):
+        """Load daily vehicle locations data, prepared and segmented by trips."""
+
+        queries = get_queries_path() 
+        sql_file = f"{queries}/preparation_for_time_imputation_at_stops.sql"
+
+        with self.db.connect().execution_options(stream_results=True) as conn: 
+            with open(sql_file) as stmt:
+                query = stmt.read() 
+                df_list = [] 
+                for chunk_dataframe in pd.read_sql(query, conn, chunksize=1000):
+                    df_list.append(chunk_dataframe) 
+
+        return pd.concat(df_list) 
+
+    def _load_stops_data(self):
+        """Load location and direction data for all stops."""
+
+        queries = get_queries_path() 
+        sql_file = f"{queries}/get_all_stops_data.sql"
+
+        with self.db.connect().execution_options(stream_results=True) as conn: 
+            with open(sql_file) as stmt:
+                query = stmt.read() 
+                df_list = [] 
+                for chunk_dataframe in pd.read_sql(query, conn, chunksize=1000):
+                    df_list.append(chunk_dataframe) 
+
+        return pd.concat(df_list) 
+
+    def _impute_read_time(self, loc_samples_df, imputer):
+
+        # Convert to numeric.
+        loc_samples_df["read_time"] = pd.to_numeric(loc_samples_df["read_time"])
+
+        # Impute missing read_time values. 
+        imputed = imputer.fit_transform(loc_samples_df) 
+        imputed_df = pd.DataFrame(imputed, columns=loc_samples_df.columns)
+
+        # Convert back to datetime. 
+        imputed_df["read_time"] = pd.to_datetime(imputed_df["read_time"]) 
+
+        return imputed_df
 
 
 class ResponseParser:
