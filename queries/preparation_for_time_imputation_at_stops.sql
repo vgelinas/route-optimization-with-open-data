@@ -1,9 +1,5 @@
 /*Prepare the sample vehicle location data from TTC.vehicle_locations for time imputation at each stop location.*/
 
-
-SET @num_days = 2;     -- days' worth of data including today
-SET @threshold = 900;  -- 15min in seconds
-
 WITH dir_tag_filter AS (  
     SELECT id AS vehicle_id,
            read_time,
@@ -13,7 +9,7 @@ WITH dir_tag_filter AS (
                ELSE direction_tag 
             END AS direction_tag
       FROM TTC.vehicle_locations 
-     WHERE DATE(read_time) >= SUBDATE(CURRENT_DATE(), INTERVAL (@num_days - 1) DAY)
+     WHERE DATE(read_time) >= SUBDATE(CURRENT_DATE(), INTERVAL 1 DAY)
      ORDER BY vehicle_id, read_time
 ),
      base AS (
@@ -31,7 +27,7 @@ WITH dir_tag_filter AS (
            read_time,
            ROW_NUMBER() OVER (PARTITION BY vehicle_id ORDER BY read_time) AS trip_number
       FROM base 
-     WHERE sec_to_prev IS NULL OR sec_to_prev >= @threshold
+     WHERE sec_to_prev IS NULL OR sec_to_prev >= 600  -- 10min in seconds
 ),
      base_with_starts AS (
     SELECT b.vehicle_id, b.direction_tag, b.read_time, b.sec_to_prev, 
@@ -55,7 +51,7 @@ WITH dir_tag_filter AS (
     SELECT loc.id as vehicle_id, trips.direction_tag, loc.lat, loc.lon, loc.read_time, trips.trip_number
       FROM TTC.vehicle_locations loc
       LEFT JOIN base_with_trips trips ON loc.id=trips.vehicle_id AND loc.read_time=trips.read_time
-     WHERE DATE(loc.read_time) >= SUBDATE(CURRENT_DATE(), INTERVAL (@num_days - 1) DAY) 
+     WHERE DATE(loc.read_time) >= SUBDATE(CURRENT_DATE(), INTERVAL 1 DAY) 
      ORDER BY loc.id, loc.read_time
 ),
      trip_padding AS (
@@ -86,7 +82,7 @@ WITH dir_tag_filter AS (
       FROM vehicle_locations
 )
 
-SELECT loc.vehicle_id, pad.trip_tag, loc.lat, loc.lon, loc.read_time, pad.trip_number
+SELECT loc.vehicle_id, pad.trip_tag as direction_tag, loc.lat, loc.lon, loc.read_time, pad.trip_number
   FROM vehicle_locations loc
  INNER JOIN trip_padding pad ON loc.vehicle_id=pad.vehicle_id AND loc.read_time=pad.read_time
  WHERE pad.trip_number IS NOT NULL
