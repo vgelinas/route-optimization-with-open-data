@@ -1,10 +1,9 @@
 """
-Generator utility function for producing API batch requests. 
-
-Shamelessly stolen from https://stackoverflow.com/questions/312443/how-do-you-split-a-list-into-evenly-sized-chunks
+Generator utility method for batching API requests or resource-heavy jobs.
 """
+from itertools import islice
 
-def batches(lst, size):
-    """Yield successive same-sized batches from list."""
-    for i in range(0, len(lst), size):
-        yield lst[i:i+size] 
+def batches(iterable, batch_size):
+    iterator = iter(iterable) 
+    while batch := list(islice(iterator, batch_size)):
+        yield batch
