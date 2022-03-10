@@ -562,7 +562,7 @@ class DataPreparation:
         """Load daily vehicle locations data, prepared and segmented by trips."""
 
         queries = get_queries_path() 
-        sql_file = f"{queries}/preparation_for_time_imputation_at_stops.sql"
+        sql_file = f"{queries}/preparation_for_time_prediction_at_stops.sql"
 
         with self.db.connect() as conn: 
             with open(sql_file) as stmt:
