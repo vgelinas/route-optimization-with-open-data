@@ -25,11 +25,13 @@ to properly identify trip boundaries. See 'offset' arg below.
 
 -----------
 Args: 
-    - left:                Lower bound for trip's last timestamp. Must have
-                        timestamp >= left for the trip to be considered. 
-    - right:             Upper bound for trip's last timestamp. Must have
-                        timestamp < right for the trip to be considered. 
-    - offset:             Number of hours removed from 'left' and added to 
+    - left:             Lower bound for trip's last timestamp. Must have
+                        timestamp >= left for the trip to be considered.
+                        
+    - right:            Upper bound for trip's last timestamp. Must have
+                        timestamp < right for the trip to be considered.
+                        
+    - offset:           Number of hours removed from 'left' and added to 
                         'right' when fetching timestamps to create trips.
                         E.g. when querying for 12:00-18:00 with offset=3,
                         we read all timestamps between 9:00-21:00. This 
@@ -45,14 +47,14 @@ Args:
 Return columns:
     - vehicle_id:        unique vehicle identifier
     - direction_tag:     unique direction identifier
-    - lat:                latitude
-    - lon:                longitude
-    - read_time:        vehicle reading timestamp
-    - trip_id:            trip unique identifier (timestamp at trip start)
+    - lat:               latitude
+    - lon:               longitude
+    - read_time:         vehicle reading timestamp
+    - trip_id:           trip unique identifier (timestamp at trip start)
 
 */
 
-WITH preprocessed_base AS (        /*Pull data for the wanted period (with offset), and fix isolated sensor errors in the direction_tag.*/
+WITH preprocessed_base AS (      /*Pull data for the wanted period (with offset), and fix isolated sensor errors in the direction_tag.*/
     SELECT id AS vehicle_id,
            CASE WHEN LAG(direction_tag) OVER (PARTITION BY id ORDER BY read_time) = LEAD(direction_tag) OVER (PARTITION BY id ORDER BY read_time) 
                 THEN LAG(direction_tag) OVER (PARTITION BY id ORDER BY read_time)  
@@ -88,7 +90,7 @@ WITH preprocessed_base AS (        /*Pull data for the wanted period (with offse
       FROM time_to_prev_ts
      WHERE sec_to_prev_ts IS NULL OR sec_to_prev_ts >= 600  -- 10min in seconds, used as threshold
 ),
-     loc_data_with_starts AS (     /*Left join start_times to the location data, tagging all trip starts with a trip_id.*/
+     loc_data_with_starts AS (   /*Left join start_times to the location data, tagging all trip starts with a trip_id.*/
     SELECT base.*, 
            start_times.trip_number
            
@@ -97,7 +99,7 @@ WITH preprocessed_base AS (        /*Pull data for the wanted period (with offse
                             AND base.direction_tag=start_times.direction_tag 
                             AND base.read_time=start_times.read_time
 ),
-     loc_data_fill_helper AS (     /*Create a row_group column, identifying which rows belong to the same trip.*/
+     loc_data_fill_helper AS (   /*Create a row_group column, identifying which rows belong to the same trip.*/
     SELECT *,
            SUM(CASE WHEN trip_number IS NULL THEN 0 ELSE 1 END) OVER (PARTITION BY vehicle_id ORDER BY read_time) AS row_group
            
