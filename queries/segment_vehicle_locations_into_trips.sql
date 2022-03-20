@@ -45,12 +45,12 @@ Args:
 
 -----------
 Return columns:
-    - vehicle_id:        unique vehicle identifier
-    - direction_tag:     unique direction identifier
-    - lat:               latitude
-    - lon:               longitude
-    - read_time:         vehicle reading timestamp
-    - trip_id:           trip unique identifier (timestamp at trip start)
+    - vehicle_id:       unique vehicle identifier
+    - direction_tag:    unique direction identifier
+    - lat:              latitude
+    - lon:              longitude
+    - read_time:        vehicle reading timestamp
+    - trip_id:          trip unique identifier (timestamp at trip start)
 
 */
 
