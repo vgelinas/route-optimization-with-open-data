@@ -95,9 +95,11 @@ WITH preprocessed_base AS (      /*Pull data for the wanted period (with offset)
            start_times.trip_number
            
       FROM preprocessed_base base 
-      LEFT JOIN start_times ON base.vehicle_id=start_times.vehicle_id 
-                            AND base.direction_tag=start_times.direction_tag 
-                            AND base.read_time=start_times.read_time
+      LEFT JOIN start_times 
+             ON base.vehicle_id=start_times.vehicle_id 
+            AND base.direction_tag=start_times.direction_tag 
+            AND base.read_time=start_times.read_time
+     WHERE base.direction_tag <> 'None'  /*At this point we remove timestamps with null direction_tag, since these are between trips.*/
 ),
      loc_data_fill_helper AS (   /*Create a row_group column, identifying which rows belong to the same trip.*/
     SELECT *,
@@ -118,15 +120,16 @@ WITH preprocessed_base AS (      /*Pull data for the wanted period (with offset)
 )
 
 
-SELECT vehicle_id,
+SELECT DISTINCT 
+       vehicle_id,
        direction_tag, 
        lat, 
        lon, 
        read_time, 
-       trip_start AS trip_id 
+       trip_start AS trip_id
        
   FROM loc_data_with_trips
  WHERE trip_end >= %(left)s
    AND trip_end < %(right)s
-   AND direction_tag <> 'None'  -- TODO: Fix null insertion issues in ORM, then change this part of the query. 
+   AND trip_start <> trip_end
  ORDER BY vehicle_id, read_time;
