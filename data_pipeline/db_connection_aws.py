@@ -12,7 +12,7 @@ class Connection:
 
     Usage: 
         with Connection() as conn:
-            df = pd.read_sql(your_query_string_here, conn)
+            df = pd.read_sql(query, conn)
     """
 
     def __init__(self): 
