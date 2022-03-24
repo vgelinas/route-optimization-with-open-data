@@ -31,10 +31,10 @@ class Pipeline:
 
 class DataLoader:
 
-    def __init__(self, db, session, wait_time=0, verbose=False):
-        self.verbose = verbose 
+    def __init__(self, db, session, verbose=False):
         self.db = db 
         self.session = session 
+        self.verbose = verbose 
         self.nextbus_client = NextBusAPIClient(verbose=self.verbose)
         self.parser = ResponseParser()
 
