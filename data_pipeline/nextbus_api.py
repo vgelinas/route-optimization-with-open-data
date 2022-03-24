@@ -6,7 +6,7 @@ https://retro.umoiq.com/xmlFeedDocs/NextBusXMLFeed.pdf
 """ 
 import datetime
 import requests
-import time
+
 
 class NextBusAPI:
     """
@@ -70,8 +70,8 @@ class NextBusAPI:
                                 "&v={vehicle_id}"),    
         }  
 
-    def get_response_dict_from_web(self, endpoint_name, **kwarg):     
-        """Wrapper for the requests get method.  
+    def get_response_dict_from_web(self, endpoint_name, **kwarg):
+        """Wrapper for the requests get method. 
 
         Args:
             endpoint_name (str): Name corresponding to the 'command' type, 
@@ -97,8 +97,8 @@ class NextBusAPI:
 
 class NextBusAPIClient:
     """
-    Client for the NextBusAPI class. Lets you pool http requests together
-    under a context manager using a persistent session.
+    Client for the NextBusAPI class. Provides a context manager for using
+    persistent sessions with http requests. 
     
     -----------------------------------------------------------------------
     Usage:
@@ -107,7 +107,7 @@ class NextBusAPIClient:
         response = client.get_response_dict_from_web(...)
 
     """
-    def __init__(self, verbose=False): 
+    def __init__(self, verbose=False):
         self.client = None
         self.verbose = verbose
 
