@@ -35,14 +35,12 @@ class DataLoader:
         self.verbose = verbose 
         self.db = db 
         self.session = session 
-        # self.nextbus = NextBusAPI(verbose=self.verbose, wait_time=self._wait_time)  
         self.nextbus_client = NextBusAPIClient(verbose=self.verbose)
         self.parser = ResponseParser()
 
     def set_verbose(self, verbose):
         self.verbose = verbose
         self.nextbus_client.set_verbose(verbose)
-        # self.nextbus = NextBusAPI(verbose=self.verbose, wait_time=self._wait_time)  
 
     def populate_transit_config_tables_from_API(self):
         """Download all routes, directions and stops data and insert them
