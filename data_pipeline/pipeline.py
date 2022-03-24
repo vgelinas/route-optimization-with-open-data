@@ -6,7 +6,7 @@ import datetime
 import db_connection 
 import pandas as pd
 from database import DatabaseWrapper
-from nextbus_api import NextBusAPI 
+from nextbus_api import NextBusAPIClient 
 from sklearn.neighbors import KNeighborsRegressor
 from utils.batching import batches
 from utils.configs import get_transit_config
@@ -35,17 +35,14 @@ class DataLoader:
         self.verbose = verbose 
         self.db = db 
         self.session = session 
-        self._wait_time = wait_time
-        self.nextbus = NextBusAPI(verbose=self.verbose, wait_time=self._wait_time)  
+        # self.nextbus = NextBusAPI(verbose=self.verbose, wait_time=self._wait_time)  
+        self.nextbus_client = NextBusAPIClient(verbose=self.verbose)
         self.parser = ResponseParser()
-
-    def set_wait_time(self, wait_time):
-        self._wait_time = wait_time
-        self.nextbus = NextBusAPI(verbose=self.verbose, wait_time=self._wait_time)  
 
     def set_verbose(self, verbose):
         self.verbose = verbose
-        self.nextbus = NextBusAPI(verbose=self.verbose, wait_time=self._wait_time)  
+        self.nextbus_client.set_verbose(verbose)
+        # self.nextbus = NextBusAPI(verbose=self.verbose, wait_time=self._wait_time)  
 
     def populate_transit_config_tables_from_API(self):
         """Download all routes, directions and stops data and insert them
@@ -53,8 +50,10 @@ class DataLoader:
         """
         # First, collect list of routes for agency. 
         agency_tag = self.db.get_agency_tag() 
-        route_list_response = self.nextbus.get_response_dict_from_web(
-                                            endpoint_name="routeList",
+
+        with self.nextbus_client as client:
+            route_list_response = client.get_response_dict_from_web(
+                                            endpoint_name="routeList", 
                                             agency_tag=agency_tag
                                             )
 
@@ -73,23 +72,24 @@ class DataLoader:
         # We'll update the remaining 'routes' table 
         # columns, and populate the entire 'directions' & 'stops' tables. 
         route_list = routes_df_dict["routes"].tag.unique()    
-        for route_tag in route_list:   
+        with self.nextbus_client as client:
+            for route_tag in route_list:   
 
-            route_config_response = self.nextbus.get_response_dict_from_web(
+                route_config_response = client.get_response_dict_from_web(
                                             endpoint_name="routeConfig",
                                             agency_tag=agency_tag,
                                             route_tag=route_tag
                                             ) 
 
-            config_df_dict = self.parser.parse_route_config_response_into_df_dict(
+                conf = self.parser.parse_route_config_response_into_df_dict(
                                             response_dict=route_config_response,
                                             route_tag=route_tag,
                                             agency_tag=agency_tag
                                             )
 
-            self.db.update_dataframe_in_table("routes", config_df_dict["routes"])
-            self.db.insert_dataframe_in_table("directions", config_df_dict["directions"])
-            self.db.insert_dataframe_in_table("stops", config_df_dict["stops"]) 
+                self.db.update_dataframe_in_table("routes", conf["routes"])
+                self.db.insert_dataframe_in_table("directions", conf["directions"])
+                self.db.insert_dataframe_in_table("stops", conf["stops"]) 
 
     def populate_schedules_table_from_API(self):
         """Download all schedules tables and insert them into database."""
@@ -97,23 +97,25 @@ class DataLoader:
         agency_tag = self.db.get_agency_tag() 
         route_list = self.db.get_route_list(agency_tag) 
 
-        for route_tag in route_list: 
+        with self.nextbus_client as client:
+            for route_tag in route_list: 
 
-            time_of_extraction = datetime.datetime.now()
-            schedules_response = self.nextbus.get_response_dict_from_web(
-                                                endpoint_name="schedule",
-                                                route_tag=route_tag,
-                                                agency_tag=agency_tag
-                                                )
+                time_of_extraction = datetime.datetime.now()
+                schedules_response = client.get_response_dict_from_web(
+                                        endpoint_name="schedule",
+                                        route_tag=route_tag,
+                                        agency_tag=agency_tag
+                                        )
 
-            df_dict = self.parser.parse_schedule_response_into_df_dict(
-                                                response_dict=schedules_response,
-                                                route_tag=route_tag,
-                                                agency_tag=agency_tag,
-                                                time_of_extraction=time_of_extraction
-                                                )
+                df_dict = self.parser.parse_schedule_response_into_df_dict(
+                                        response_dict=schedules_response,
+                                        route_tag=route_tag,
+                                        agency_tag=agency_tag,
+                                        time_of_extraction=time_of_extraction
+                                        )
 
-            self.db.insert_dataframe_in_table("schedules", df_dict["schedules"])
+                self.db.insert_dataframe_in_table(
+                                        "schedules", df_dict["schedules"])
 
     def fetch_active_vehicles_snapshop_from_API(self):
         """Fetch the id of all currently active vehicles and insert in db."""
@@ -122,10 +124,12 @@ class DataLoader:
         route_list = self.db.get_route_list(agency_tag)   
 
         df_list = []
-        for route_tag in route_list:
-            df_vehicles_on_route = self._fetch_vehicle_location_on_route_df(
-                                            route_tag, agency_tag)
-            df_list.append(df_vehicles_on_route)
+        with self.nextbus_client as client:
+            for route_tag in route_list:
+                df_vehicles_on_route = self._fetch_vehicle_location_on_route_df(
+                    route_tag, agency_tag, client)
+
+                df_list.append(df_vehicles_on_route)
         df_active_vehicles = pd.concat(df_list)  
 
         df_active_vehicles["agency_tag"] = agency_tag
@@ -135,11 +139,11 @@ class DataLoader:
 
         self.db.insert_dataframe_in_table("vehicles", df_active_vehicles)        
 
-    def _fetch_vehicle_location_on_route_df(self, route_tag, agency_tag):
+    def _fetch_vehicle_location_on_route_df(self, route_tag, agency_tag, client):
         """Fetch vehicle data for all vehicles currently active on route."""
         
         time_of_extraction = datetime.datetime.now() 
-        response_dict = self.nextbus.get_response_dict_from_web(
+        response_dict = client.get_response_dict_from_web(
                                 endpoint_name="vehicleLocations",
                                 agency_tag=agency_tag,
                                 route_tag=route_tag,
@@ -158,21 +162,25 @@ class DataLoader:
         """Fetch current vehicle location for all recently active vehicle ids."""  
 
         agency_tag = self.db.get_agency_tag() 
-        vehicle_ids = self.db.get_active_vehicle_ids(agency_tag, active_over_num_days)
+        vehicle_ids = self.db.get_active_vehicle_ids(
+            agency_tag, active_over_num_days)
 
         df_list = [] 
-        for vehicle_id in vehicle_ids:
-            df_vehicle = self._fetch_vehicle_location_df(agency_tag, vehicle_id) 
-            df_list.append(df_vehicle)
+        with self.nextbus_client as client:
+            for vehicle_id in vehicle_ids:
+                df_vehicle = self._fetch_vehicle_location_df(
+                    agency_tag, vehicle_id, client) 
+
+                df_list.append(df_vehicle)
         df_vehicle_locations = pd.concat(df_list) 
 
         self.db.insert_dataframe_in_table("vehicle_locations", df_vehicle_locations)
 
-    def _fetch_vehicle_location_df(self, agency_tag, vehicle_id):
+    def _fetch_vehicle_location_df(self, agency_tag, vehicle_id, client):
         """Fetch current location data for a specific vehicle.""" 
 
         time_of_extraction = datetime.datetime.now()
-        response_dict = self.nextbus.get_response_dict_from_web(
+        response_dict = client.get_response_dict_from_web(
                                 endpoint_name="vehicleLocation",
                                 agency_tag=agency_tag,
                                 vehicle_id=vehicle_id 
@@ -197,14 +205,15 @@ class DataLoader:
         vehicle_ids = self.db.get_validation_vehicle_ids(agency_tag) 
 
         df_list = [] 
-        for vehicle_id in vehicle_ids:
-            df_vehicle = self._fetch_vehicle_location_df(agency_tag, vehicle_id) 
-            df_list.append(df_vehicle)
+        with self.nextbus_client as client:
+            for vehicle_id in vehicle_ids:
+                df_vehicle = self._fetch_vehicle_location_df(
+                    agency_tag, vehicle_id, client) 
+                df_list.append(df_vehicle)
 
         df_vehicle_locations = pd.concat(df_list) 
-        self.db.insert_dataframe_in_table("vehicle_locations_validation", df_vehicle_locations)
-
-        pass
+        self.db.insert_dataframe_in_table(
+            "vehicle_locations_validation", df_vehicle_locations)
 
     def delete_old_vehicle_locations_entries(self, keep_num_days=7):
         """Delete all vehicle location entries outside of retention period."""

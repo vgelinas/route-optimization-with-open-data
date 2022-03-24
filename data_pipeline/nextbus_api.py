@@ -1,5 +1,5 @@
 """
-Wrapper class for the NextBus Web API. 
+Classes to handle interfacing with the NextBus Web API. 
 
 See more information at 
 https://retro.umoiq.com/xmlFeedDocs/NextBusXMLFeed.pdf
@@ -38,9 +38,9 @@ class NextBusAPI:
 
     """
 
-    def __init__(self, verbose=False, wait_time=0):
+    def __init__(self, session=None, verbose=False):
+        self.session = session 
         self.verbose = verbose
-        self.wait_time = wait_time
         self.endpoints = {
             "agencyList": ("https://retro.umoiq.com/service/publicJSONFeed"
                            "?command=agencyList"), 
@@ -89,7 +89,36 @@ class NextBusAPI:
             now = datetime.datetime.now().strftime("%H:%M:%S %h %d")
             print("API call at {time} ~ {url}".format(time=now, url=url))
 
-        time.sleep(self.wait_time)  # Slow request rate, if necessary.
+        if self.session:
+            return self.session.get(url).json()
+        else:
+            return requests.get(url).json() 
 
-        return requests.get(url).json() 
 
+class NextBusAPIClient:
+    """
+    Client for the NextBusAPI class. Lets you pool http requests together
+    under a context manager using a persistent session.
+    
+    -----------------------------------------------------------------------
+    Usage:
+
+    with NextBusAPIClient() as client:
+        response = client.get_response_dict_from_web(...)
+
+    """
+    def __init__(self, verbose=False): 
+        self.client = None
+        self.verbose = verbose
+
+    def set_verbose(self, verbose):
+        self.verbose = verbose
+
+    def __enter__(self):
+        self.client = NextBusAPI(
+            session=requests.Session(), 
+            verbose=self.verbose)
+        return self.client
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.client.session.close() 
