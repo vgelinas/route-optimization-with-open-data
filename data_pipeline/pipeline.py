@@ -8,7 +8,6 @@ import pandas as pd
 from database import DatabaseWrapper
 from nextbus_api import NextBusAPI 
 from sklearn.neighbors import KNeighborsRegressor
-from utils.batching import batches
 from utils.configs import get_transit_config
 from utils.distances import calculate_distance_from_lat_lon_coords
 from utils.queries import get_queries_path

@@ -11,8 +11,8 @@ With this project I had a few goals in mind:
 - finally learn spark. 
 
 
-Concretely, the current goals are:
-- create and maintain statistical models of transit over the TTC network;
+Concretely, the current goals are to:
+- create & maintain statistical distributions of transit over the TTC network, updating incrementally;
 - perform route optimization, which depends on time-of-day; 
 - detect network anomalies and reroute around them. 
 
@@ -24,8 +24,8 @@ Concretely, the current goals are:
 &nbsp;
 
 # Things of interest
-## Data Collection
-Location data is collected every 2-3 minutes from a fleet of ~2000 vehicles, with 10 days retention. 
+## Data collection
+Location data is collected every 2-3 minutes from a fleet of ~2200 vehicles, with 10 days retention. 
 
 &nbsp;
 
