@@ -25,7 +25,7 @@ Concretely, the current goals are to:
 
 # Things of interest
 ## Data collection
-Location data is collected every 2-3 minutes from a fleet of ~2200 vehicles, with 10 days retention. 
+Location data is collected every minute from a fleet of ~2200 vehicles, with 10 days retention. 
 
 &nbsp;
 
