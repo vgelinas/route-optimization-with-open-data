@@ -132,4 +132,4 @@ SELECT DISTINCT
  WHERE trip_end >= %(left)s
    AND trip_end < %(right)s
    AND trip_start <> trip_end
- ORDER BY vehicle_id, read_time;
+ ORDER BY vehicle_id, direction_tag, trip_id, read_time;
